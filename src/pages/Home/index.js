@@ -34,153 +34,328 @@ const ImageResolution = {
 
 const krpanoTemplate = (
   styles,
+  hotspots,
   scenes,
-  dollhouses,
-  actions
-) => `<krpano version="1.20.9" title="Virtual Tour">
+  dollhouses
+) => `<krpano version="1.21" title="Virtual Tour" onstart="onLoadedXML();">
 
 <include url="plugins/contextmenu.xml" />
 <include url="plugins/showtext.xml" />
+<include url="plugins/preload.xml" />
+<include url="plugins/footer.xml" />
+<include url="plugins/depthmap_measure3d.xml" />
+<include url="plugins/depthmap_navigation.xml"/>
+<include url="toolbox/stickie_data.xml" />
 
+<plugin name="toolbox" url="toolbox/toolboxV2.js" keep="true" preload="true"
+		poly_bgcolor="0x336699"
+		dot_color="0xffff00"
+		dot_size="12"
+		active_dot_color="0x00ff00"
+		active_dot_size="12"
 
-<!-- startup action - load the first scene -->
-<events name="tourevents" keep="true" onxmlcomplete="setup_first_scene();"/>
-<action name="setup_first_scene" scope="local">
-  set(view, tx=get(image.ox), ty=get(image.oy), tz=get(image.oz));
-  set(events[tourevents].onxmlcomplete, null); set(events[tourevents].onloadcomplete) );
-</action>
-<action name="startup" autorun="onstart">
-  if(startscene === null OR !scene[get(startscene)], copy(startscene,scene[0].name); );
-  loadscene(get(startscene), null, MERGE); if(startactions !== null, startactions() );
-</action>
+		keycode_to_home="77"
+		keycode_to_activate="84"
+		keycode_to_log="76"
+		keycode_to_numbers="78"
+		keycode_to_distorted="72"
+		keycode_to_poly="80"
+		keycode_to_grid="71"
+		keycode_to_stickies="74"
+		keycode_to_colorpicker="75"
+		keycode_to_info="73"
 
+		decimals_for_numbers="3"
+		decimals_for_dhe="2"
 
-<!-- 3D Transition  -->
-<action name="tour3d_loadscene" scope="local" args="scenename">
-  loadscene(get(scenename), null, MERGE|KEEPVIEW|KEEPMOVING, BLEND(0.75));
-  if (global.customtransition != 'SKIP', if(global.customtransition !== null, global.customtransition(); ,
-  tween(view.tx|view.ty|view.tz, calc(image.ox + '|' + image.oy + '|' + image.oz), 1.0, easeinoutsine); ); );
-  delete(global.customtransition); delete(global.customtransitiontime);
-</action>
+		basecolor_for_colorpicker="0xff0000"
+	/>
 
-<style name="hotspotvtour4" url="vtourskin_hotspot.png" scale="0.025" alpha="0" bgcolor="0xFFFF00" bgroundedge="50" bgborder="2 0x000000 1" oversampling="2" mipmapping="true" zorder="2" distorted="true" depth="0" depthbuffer="true" torigin="world" rotationorder="xzy" onloaded.addevent="delayedcall(1.3, tween(alpha,0.3); );" onover="tween(scale,0.032);" onout.addevent="tween(scale,0.025);" />
-<style name="Style_Dollhouse" prealign="0|0|0" ox="0" oy="0" oz="0" />
-${styles}
+  <action name="onLoadedXML">
+		set(global,
+			prevScene:string='scene_pano1',
+		);
+		tween(view.vlookat, 30, 2.0, easeinoutquad); 
+		transition_to_dh();
+		trace(layer[depthmap_measure3d_ui].interactive);
+	</action>
 
+	<action name="checkAndHideSelectFloor" type="Javascript"><![CDATA[
+		const isFloorSelectShowing = document.querySelector(".floorselect_box_ui.show");
+		if(isFloorSelectShowing) {
+			isFloorSelectShowing.classList.remove('show');
+		}
+	]]></action>
+
+	<events name="local_event" keep="true" onclick="checkAndHideSelectFloor();" onkeydown="action(keydown);" />
+
+  <action name="keydown">
+		if(keycode == charcode('1'), 
+			if(layer['btn-explore-3d-space'].visible, 
+				tour3d_loadscene(get(prevScene));toggleExplore3DSpace();
+			);
+		);
+		if(keycode == charcode('2'), 
+			if(layer['btn-dollhouse'].visible, 
+				loadFloorDollhousSceneBySelectedFloor();handleOnClickDollhouse();
+			);
+		);
+		if(keycode == charcode('3'), 
+			if(layer['btn-floorplan'].visible, 
+				loadFloorSceneBySelectedFloor();toggleFloorPlan();
+			);
+		);
+	</action>
+
+	<action name="showHotspotsScenePano" scope="local" args="isshow">
+		for(set(i,0), i LE hotspot.count, inc(i), 
+			if(contains(hotspot[get(i)].name, 'hotspot_'),
+				set(hotspot[get(i)].visible, get(isshow)); 
+			);
+		);
+	</action>
+
+  <!-- Load Scene 3D  -->
+  <action name="tour3d_loadscene" scope="local" args="scenename">
+		if(xml.scene === 'dollhouse', dh_off();); 
+		if(xml.scene === 'dollhouse1', dh_off();); 
+		if(xml.scene === 'dollhouse2', dh_off();); 
+		if(xml.scene === 'floorplan1', floorplan_off();); 
+		if(xml.scene === 'floorplan2', floorplan_off();); 
+		if(xml.scene === 'floorplan', floorplan_off(););
+
+		currentSceneBeforeClickLoadScene = xml.scene;
+		
+		set(global,
+			prevScene:string=get(scenename),
+		);
+		loadscene(get(scenename), null, MERGE|KEEPVIEW|KEEPMOVING, BLEND(0.75)); 
+		tween(view.fovmin|view.fovmax, 25|120, 1.5, easeinoutquad);
+		if (global.customtransition != 'SKIP', 
+			if(global.customtransition !== null, 
+				global.customtransition(); 
+			, 
+				if(device.normal, tween(view.fov, 90, 1.5, easeinoutquad););
+				if(device.mobile, tween(view.fov, 120, 1.5, easeinoutquad););
+				
+				tween(view.tx|view.ty|view.tz, calc(image.ox + '|' + image.oy + '|' + image.oz), 1.5, easeinoutsine);
+			); 
+		); 
+		delete(global.customtransition); 
+		delete(global.customtransitiontime); 
+
+		wait(LOAD);
+		showHotspotsScenePano("true");
+
+		<!-- If click load scene at floor plan view -->
+		if(currentSceneBeforeClickLoadScene !== 'dollhouse', 
+			set(layer[btn-dollhouse].x, 20);
+			set(layer[btn-floorplan].visible, true); 
+		);
+		<!-- If click load scene at dollhouse view -->
+		if(currentSceneBeforeClickLoadScene == 'dollhouse', 
+			set(layer[btn-dollhouse].x, 20);
+		);
+		if( get(layer[btn-explore-3d-space].visible), set(layer[btn-explore-3d-space].visible, false); );
+		if( get(layer[btn-dollhouse].visible) == false, set(layer[btn-dollhouse].visible, true); );
+	</action>
+
+<style name="hotspotvtour4" type="text" keep="true" visible="true" distorted="true" depth="0" depthbuffer="true" rotationorder="xzy" width="40" height="40" rx="90" ty="0" scale="0.2" bgcolor="0xffffff" bgalpha="0" bgborder="10 0xffffff 1" bgroundedge="30" bgshadow="0 0 10 0x000000 0.6" ondown.addevent="tween(scale|bgalpha, 0.45|0.4 ,0.2); " onup.addevent="tween(scale|bgalpha, 0.5|0 ,0.2); " onover.addevent="tween(scale|bgalpha, 0.35|0.4 ,0.2); " onout.addevent="tween(scale|bgalpha, 0.2|0 ,0.2); "/>
+<style name="hotspot_dollhouse_and_floorplan" type="text" distorted="true" depth="0" depthbuffer="true" rotationorder="xzy" width="40" height="40" rx="90" ty="0" scale="0.2" bgcolor="0xffffff" bgalpha="0" bgborder="10 0xffffff 1" bgroundedge="30" bgshadow="0 0 10 0x000000 0.6" ondown.addevent="tween(scale|bgalpha, 0.45|0.4 ,0.2); " onup.addevent="tween(scale|bgalpha, 0.5|0 ,0.2); " onover.addevent="tween(scale|bgalpha, 0.35|0.4 ,0.2); " onout.addevent="tween(scale|bgalpha, 0.2|0 ,0.2); "/>
+<style name="style_dollhouse_and_floorplan" prealign="0|0|0" ox="0" oy="0" oz="0" />
+<style name="Style_floorplan1" prealign="0|0|0" ox="0" oy="0" oz="0"/>
+<style name="Style_floorplan2" prealign="0|0|0" ox="0" oy="0" oz="0"/>${styles}
+
+<!-- hotspots  -->
+${hotspots}
 
 <!-- scene pano  -->
 ${scenes}
-<!-- style dollhouse  -->
+<!-- Action  -->
 ${dollhouses}
-<!-- actions   -->
-${actions}
 
 </krpano>`;
 
-const sceneTemplate = (pano_id, hotspots, imageResolution) => {
-  let multires;
-  switch (imageResolution) {
-    case ImageResolution["4K"]:
-      multires = "512,640,1280";
-      break;
-    case ImageResolution["8K"]:
-      multires = "512,640,1280,2624";
-      break;
-    case ImageResolution["12K"]:
-      multires = "512,1024,2048,3840";
-      break;
-    default:
-      multires = "512,640,1280,2624,5248";
-      break;
-  }
-  return `\n<scene name="scene_pano${pano_id}" title="pano${pano_id}" onstart="" thumburl="panos/pano${pano_id}.tiles/thumb.jpg" lat="" lng="" heading="">
+const scenePanoTemplate = (pano_id, origin, align) => {
+  // let multires;
+  // switch (imageResolution) {
+  //   case ImageResolution["4K"]:
+  //     multires = "512,640,1280";
+  //     break;
+  //   case ImageResolution["8K"]:
+  //     multires = "512,640,1280,2624";
+  //     break;
+  //   case ImageResolution["12K"]:
+  //     multires = "512,1024,2048,3840";
+  //     break;
+  //   default:
+  //     multires = "512,640,1280,2624,5248";
+  //     break;
+  // }
+  return `\n<scene name="scene_pano${pano_id}" title="pano${pano_id}" onstart="" thumburl="panos/pano${pano_id}.tiles/thumb.jpg" lat="" lng="" alt="" heading="">
 
  <control bouncinglimits="calc:image.cube ? true : false" />
 
- <view hlookat="0.0" vlookat="0.0" fovtype="MFOV" fov="120" maxpixelzoom="2.0" fovmin="70" fovmax="140" limitview="auto" />
+ <view hlookat="0.0" vlookat="0.0" fovtype="MFOV" fov="90" maxpixelzoom="1.0" limitview="auto" />
 
  <preview url="panos/pano${pano_id}.tiles/preview.jpg" />
 
  <image style="style_pano${pano_id}">
-    <cube url="panos/pano${pano_id}.tiles/%s/l%l/%0v/l%l_%s_%0v_%0h.jpg" multires="${multires}" />
-    <depthmap url="stl/pano${pano_id}.stl"
+    <cube url="panos/pano${pano_id}.tiles/pano_%s.jpg" />
+    <depthmap url="model/model.depth"
     enabled="true"
     rendermode="3dmodel"
-    background="none"
+    backgroundurl="images/black.svg"
     scale="100"
     offset="0.0"
     subdiv=""
     encoding="gray"
     axis="+x+y+z"
     cull="front"
-    center="0,0,0"
+    hittest="true"
+    origin="${origin}"
+    align="${align}"
  />
  </image>
-${hotspots}
 </scene>
 `;
 };
 
 const sceneDollhouseOrFloorTemplate = (
   isDollhouseScene,
-  hotspots,
-  scence = {
+  hotspots = '',
+  scene = {
     name: "Dollhouse",
     title: "Dollhouse",
-    style: "Style_Dollhouse",
+    style: "style_dollhouse_and_floorplan",
     sphereURL: "dollhouse/bake.jpg",
     depthmapURL: "dollhouse/dollhouse.obj",
+    texURL: "dollhouse/dollhouse.mtl"
   }
 ) => `
   ${
     isDollhouseScene ? "<!-- Dollhouse Scene -->" : "<!--  Floorplan Scene  -->"
   }
-<scene name="${scence.name}" title="${
-  scence.title
-}" onstart="" lat="" lng="" heading="">
- <view hlookat="0.0" vlookat="0.0" fovtype="MFOV" fov="120" maxpixelzoom="2.0" fovmin="70" fovmax="140" limitview="auto" />
- <image style="${scence.style}">
-  <sphere url="${scence.sphereURL}" />
+<scene name="${scene.name}" title="${
+  scene.title
+}" onstart="" lat="" lng="" heading="" css="z-index: 9999;">
+ <view hlookat="0.0" vlookat="0.0" fovtype="MFOV" fov="90" maxpixelzoom="1.0" limitview="auto" />
+ <image style="${scene.style}">
+  <sphere url="${scene.sphereURL}" />
   <depthmap url="${
-    scence.depthmapURL
-  }"enabled="true" rendermode="3dmodel" textured="true" background="none" scale="100" offset="0" subdiv="" encoding="gray" cull="front"/>
+    scene.depthmapURL
+  }" texurl="${scene.texURL}" backgroundurl="images/black.svg" enabled="true" rendermode="3dmodel" textured="true" background="none" scale="100" offset="0" subdiv="" encoding="gray" cull="front" hittest="true" />
  </image> ${hotspots}
 </scene>
 `;
 
-const hotSpotTemplate = ({ name, style, x, y, z, distance, handler }) =>
-  `\n <hotspot name="${name}" style="${style}" tx="${x}" ty="${(
-    parseFloat(y) - distance
+const hotSpotTemplate = ({ name, style, tx, ty, tz, distance, handler }) =>
+  `\n <hotspot name="${name}" style="${style}" tx="${tx}" ty="${(
+    parseFloat(ty) - distance
   ).toFixed(
     2
-  )}" tz="${z}" rx="-90.0" ry="-0.0" rz="0.0" onclick="${handler}" />`;
+  )}" tz="${tz}" rx="-90.0" ry="-0.0" rz="0.0" onclick="${handler}" />`;
 
-const dollhouseTemplate = (id) => `
-<!-- layer dollhouse  -->
-<layer name="btn-dollhouse" type="image" url="dollhouse/dollhouse.png" keep="true" align="leftbottom" x="90" y="20" scale="0.7" visible="true" onhover="showtext(Dollhouse,menuehover);" onclick="loadscene(Dollhouse,null,PRELOAD|MERGE|KEEPMOVING|KEEPSCENES, BLEND(0.15)); wait(0.1); dollhouse_view_${id}();" />
-<action name="dollhouse_view_${id}">
-  lookto(0,50,90,default,true,true);
-  tween(view.oz|view.tx|view.ty|view.tz,calc(''+2500+'|'+image.ox+'|'+image.oy+'|'+image.oz), 1.0, easeinoutquad);
+// Dollhouse and Floorplan Action
+const commonActionTransitionDollhouseAndFloorplan = () => `
+<action name="dh_off"> 
+  tween(view.oz|view.vlookat, 0|0, 2.0); 
+  set(control.invert,false); 
+</action>
+	
+<!--  Transition to dollhouse   -->
+<action name="transition_to_dh"> 
+  adjusthlookat(110);
+  if(contains(xml.scene, 'scene_pano')
+    ,
+    tween(view.oz, 1280, 2.0, easeinoutquad); 
+    if(device.desktop, lookto(0,30,70,default,true,true););
+    if(device.tablet, lookto(0,30,90,default,true,true););
+    if(device.mobile, lookto(0,30,135,default,true,true););
+    ,
+    tween(view.oz, 1280, 1, easeinoutquad); 
+    if(contains(xml.scene, 'floorplan'),
+      <!-- change view from floor plan -> dollhouse view -->
+      if(device.desktop, lookto(0,30,70,default,true,true););
+      if(device.tablet, lookto(0,30,90,default,true,true););
+      if(device.mobile, lookto(0,30,135,default,true,true););
+      ,
+      <!-- keep view if in dollhouse -->
+      if(device.desktop, tween(view.fov, 70.0, 2.0, easeinoutquad););
+      if(device.tablet, tween(view.fov, 90.0, 2.0, easeinoutquad););
+      if(device.mobile, tween(view.fov, 135.0, 2.0, easeinoutquad););
+    )
+  );
+  tween(view.ox|view.oy, 0.0|0.0, 2.0, easeinoutquad); 
+  tween(view.tx|view.ty|view.tz, 0.0|0.0|241.0|, 2.0, easeinoutquad); 
+  loadscene(Dollhouse, null, MERGE|KEEPMOVING, BLEND(0.25)); 
+  tween(view.fovmin|view.fovmax, 20|135, 1.5, easeinoutquad);
   set(control.invert,true);
-  tween(view.architectural, 0.0, distance(1.0,0.5));
-  tween(view.pannini,       0.0, distance(1.0,0.5));
-  tween(view.fisheye,       0.0, distance(1.0,0.5));
+  wait(LOAD); 
+  showHotspotsScenePano("true");
+</action>
+
+<action name="floorplan_off">
+  tween(view.oz, 0, 1);
+  tween(view.fov|view.vlookat, 10|0, 2.0);
+  set(control.invert,false); 
+  <!-- wait(1.0); -->
+</action>
+
+<action name="transition_to_floorplan">
+  tween(view.fovmin|view.fovmax, 3|30, 1.5, easeinoutquad);
+  if(device.normal, lookto(0,90,10,default,true,true););
+  if(device.mobile, lookto(0,90,27,default,true,true););
+  tween(view.oz|view.tx|view.ty|view.tz,calc(''+7000+'|'+image.ox+'|'+image.oy+'|'+image.oz), 1.0, easeinoutquad); 
+  loadscene(floorplan, null, MERGE|KEEPMOVING, BLEND(0.25)); 
+  set(control.invert,true);
+  wait(BLEND);
+  showHotspotsScenePano("true");
 </action>
 `;
 
-const hotSpotDollhouseActionTemplate = (
-  id,
-  x,
-  y,
-  z
-) => `<action name="transition_dh_to_scene_pano${id}" scope="local">
-  tween(view.tx|view.ty|view.tz|view.vlookat,${x}|${y}|${z}|0, 2.0, easeinoutquad);
-  loadscene(scene_pano${id}, null, MERGE|KEEPVIEW|KEEPMOVING, BLEND(0.75));
-  wait(1);
-  tween(view.ox|view.oy|view.oz|view.fov, 0.0|0.0|0.0|120, 2.0, easeinoutquad);
-  delete(global.customtransition); delete(global.customtransitiontime); set(control.invert,false);
+const dollhouseAction = (actionName, dollhouseName) => `
+<action name="${actionName}"> 
+  showHotspotsScenePano("false");
+  adjusthlookat(110);
+  if(contains(xml.scene, 'scene_pano')
+    ,
+    tween(view.oz, 1280, 2.0, easeinoutquad); 
+    if(device.desktop, lookto(0,30,70,default,true,true););
+    if(device.tablet, lookto(0,30,90,default,true,true););
+    if(device.mobile, lookto(0,30,135,default,true,true););
+    ,
+    tween(view.oz, 1280, 1, easeinoutquad); 
+    if(contains(xml.scene, 'floorplan'),
+      if(device.desktop, lookto(0,30,70,default,true,true););
+      if(device.tablet, lookto(0,30,90,default,true,true););
+      if(device.mobile, lookto(0,30,135,default,true,true););
+      ,
+      if(device.desktop, tween(view.fov, 70.0, 2.0, easeinoutquad););
+      if(device.tablet, tween(view.fov, 90.0, 2.0, easeinoutquad););
+      if(device.mobile, tween(view.fov, 135.0, 2.0, easeinoutquad););
+    )
+  );
+  tween(view.ox|view.oy, 0.0|0.0, 2.0, easeinoutquad); 
+  tween(view.tx|view.ty|view.tz, 0.0|0.0|241.0|, 2.0, easeinoutquad); 
+  loadscene(${dollhouseName}, null, MERGE|KEEPVIEW|KEEPMOVING, BLEND(0.25)); 
+  tween(view.fovmin|view.fovmax, 20|135, 1.5, easeinoutquad);
+  set(control.invert,true);
+  wait(LOAD); 
 </action>
-`;
+`
+
+const floorplanAction = (actionName, floorplanName) => `
+<action name="${actionName}">
+  showHotspotsScenePano("false");
+  tween(view.fovmin|view.fovmax, 3|30, 1.5, easeinoutquad);
+  if(device.normal, lookto(0,90,10,default,true,true););
+  if(device.mobile, lookto(0,90,27,default,true,true);); 
+  tween(view.oz|view.tx|view.ty|view.tz,calc(''+7000+'|'+image.ox+'|'+image.oy+'|'+image.oz), 1.0, easeinoutquad); 
+  loadscene(${floorplanName}, null, MERGE|KEEPVIEW|KEEPMOVING, BLEND(0.25)); 
+  set(control.invert,true);
+</action>
+`
 
 const Home = () => {
   const [floorNumber, setFloorNumber] = useState(2);
@@ -207,11 +382,13 @@ const Home = () => {
   };
 
   const downloadXML = () => {
-    let all_hotspot = "";
-    let all_hotspot_dollhouse = "";
-    let all_dollhouse_actions = "";
     let all_scene = "";
+    let dollhouse_scene = "";
+    let floor_scene = "";
+    let all_hotspot = "";
     let xml_style = "";
+    let xml_result = "";
+    let dollhouseAndFloorplanAction = commonActionTransitionDollhouseAndFloorplan();
 
     for (const property in xmlStyle) {
       xml_style += `\n${xmlStyle[property]}`;
@@ -223,47 +400,37 @@ const Home = () => {
 
     for (let i = 0, j = array[0].children.length; i < j; i++) {
       let pn = array[0].children[i];
-      let pano_id = pn.attributes.linkedscene.trim().split("pano")[1];
+      let pano_id = pn.attributes.name.trim().split("pano")[1];
 
       all_hotspot += hotSpotTemplate({
         name: `hotspot_${pano_id}`,
         style: hotSpotStyleName,
-        x: pn.attributes.ox,
-        y: pn.attributes.oy,
-        z: pn.attributes.oz,
+        tx: pn.attributes.ox,
+        ty: pn.attributes.oy,
+        tz: pn.attributes.oz,
         distance: cameraDistance,
         handler: `tour3d_loadscene(scene_pano${pano_id});`,
       });
 
-      all_hotspot_dollhouse += hotSpotTemplate({
-        name: `hotspot_dollhouse_${pano_id}`,
-        style: hotSpotStyleName,
-        x: pn.attributes.ox,
-        y: pn.attributes.oy,
-        z: pn.attributes.oz,
-        distance: cameraDistance,
-        handler: `transition_dh_to_scene_pano${pano_id}();`,
-      });
-
-      all_dollhouse_actions += hotSpotDollhouseActionTemplate(
-        pano_id,
-        pn.attributes.ox,
-        pn.attributes.oy,
-        pn.attributes.oz
-      );
+      all_scene += scenePanoTemplate(pano_id, pn.attributes.origin, pn.attributes.align);
     }
 
-    for (let i = 0, j = array[0].children.length; i < j; i++) {
-      let pn = array[0].children[i];
-      let pano_id = pn.attributes.linkedscene.trim().split("pano")[1];
-      all_scene += sceneTemplate(pano_id, all_hotspot, imageResolution);
-    }
-
-    let dollhouse_scene = sceneDollhouseOrFloorTemplate(
+    dollhouse_scene = sceneDollhouseOrFloorTemplate(
       true,
-      all_hotspot_dollhouse
     );
-    let floor_scene = "";
+
+    floor_scene = sceneDollhouseOrFloorTemplate(
+      false,
+      '',
+      {
+        name: "floorplan",
+        title: "Floorplan",
+        style: "style_dollhouse_and_floorplan",
+        sphereURL: "dollhouse/bake.jpg",
+        depthmapURL: "dollhouse/dollhouse.obj",
+        texURL: "dollhouse/dollhouse.mtl"
+      }
+    );
 
     Array.from(Array(floorNumber), (e, i) => {
       let xmlStylePerFloor = xmlStyle[i];
@@ -275,26 +442,26 @@ const Home = () => {
 
       for (let i = 0, j = array[0].children.length; i < j; i++) {
         let pn = array[0].children[i];
-        let pano_id = pn.attributes.linkedscene.trim().split("pano")[1];
+        let pano_id = pn.attributes.name.trim().split("pano")[1];
 
         hotspots_per_dollhouse += hotSpotTemplate({
-          name: `hotspot_dollhouse_${pano_id}`,
-          style: hotSpotStyleName,
-          x: pn.attributes.ox,
-          y: pn.attributes.oy,
-          z: pn.attributes.oz,
+          name: `hotspotdollhouse_${pano_id}`,
+          style: `hotspot_dollhouse_and_floorplan`,
+          tx: pn.attributes.ox,
+          ty: pn.attributes.oy,
+          tz: pn.attributes.oz,
           distance: cameraDistance,
-          handler: `transition_dh_to_scene_pano${pano_id}();`,
+          handler: `tour3d_loadscene(scene_pano${pano_id});`,
         });
 
         hotspots_per_floor += hotSpotTemplate({
-          name: `hotspot_floorplan_${pano_id}`,
-          style: hotSpotStyleName,
-          x: pn.attributes.ox,
-          y: pn.attributes.oy,
-          z: pn.attributes.oz,
+          name: `hotspotfloorplan_${pano_id}`,
+          style: `hotspot_dollhouse_and_floorplan`,
+          tx: pn.attributes.ox,
+          ty: pn.attributes.oy,
+          tz: pn.attributes.oz,
           distance: cameraDistance,
-          handler: `transition_dh_to_scene_pano${pano_id}();`,
+          handler: `tour3d_loadscene(scene_pano${pano_id});`,
         });
       }
 
@@ -304,33 +471,39 @@ const Home = () => {
         {
           name: `Dollhouse${i + 1}`,
           title: `Dollhouse${i + 1}`,
-          style: `Style_Dollhouse${i + 1}`,
+          style: `style_dollhouse_and_floorplan`,
           sphereURL: `dollhouse/bake${i + 1}.jpg`,
-          depthmapURL: `dollhouse/tang${i + 1}.obj`,
+          depthmapURL: `dollhouse/floor${i + 1}.obj`,
+          texURL: `dollhouse/floor${i + 1}.mtl`
         }
       );
 
       floor_scene += sceneDollhouseOrFloorTemplate(false, hotspots_per_floor, {
-        name: `Floorplan${i + 1}`,
+        name: `floorplan${i + 1}`,
         title: `Floorplan${i + 1}`,
-        style: `Style_floorplan${i + 1}`,
+        style: `hotspot_dollhouse_and_floorplan`,
         sphereURL: `dollhouse/bake${i + 1}.jpg`,
-        depthmapURL: `dollhouse/tang${i + 1}.obj`,
+        depthmapURL: `dollhouse/floor${i + 1}.obj`,
+        texURL: `dollhouse/floor${i + 1}.mtl`
       });
+
+      dollhouseAndFloorplanAction += dollhouseAction(`transition_to_dh${i + 1}`, `Dollhouse${i + 1}`);
+      dollhouseAndFloorplanAction += floorplanAction(`transition_to_floorplan${i + 1}`, `floorplan${i + 1}`);
+
       return;
     });
 
     all_scene += dollhouse_scene;
     all_scene += floor_scene;
 
-    let all_dollhouses = dollhouseTemplate(1);
-
-    let xml_result = krpanoTemplate(
+    xml_result = krpanoTemplate(
       xml_style,
+      all_hotspot,
       all_scene,
-      all_dollhouses,
-      all_dollhouse_actions
+      dollhouseAndFloorplanAction
     );
+    
+    // Download XML
     const element = document.createElement("a");
     const file = new Blob([xml_result], {
       type: "text/xml",
